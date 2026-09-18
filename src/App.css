@@ -85,6 +85,28 @@ html, body, #root {
   line-height: 1;
 }
 
+.track-switch {
+  display: inline-flex;
+  border: 1px solid #333e50;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.track-switch .track-btn {
+  border: none;
+  border-radius: 0;
+  background: #171c26;
+}
+
+.track-switch .track-btn:hover {
+  background: #232b3a;
+}
+
+.track-switch .track-btn.active {
+  background: #2d7d6f;
+  color: #fff;
+}
+
 .time-readout {
   font-variant-numeric: tabular-nums;
   font-size: 0.9rem;

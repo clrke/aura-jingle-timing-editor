@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { LyricLine, RawLyricLine } from './types'
 
-const STORAGE_KEY = 'aura-jingle-lines-v1'
 const MIN_LINE_DURATION = 0.1
 const WAVEFORM_BUCKETS = 2400
 const WAVEFORM_HEIGHT = 140
@@ -9,8 +8,29 @@ const DEFAULT_PX_PER_SEC = 90
 const MIN_PX_PER_SEC = 20
 const MAX_PX_PER_SEC = 400
 
-const AUDIO_SRC = `${import.meta.env.BASE_URL}jingle.mp3`
-const TRANSCRIPT_SRC = `${import.meta.env.BASE_URL}transcript.json`
+type TrackKey = 'original' | 'chill'
+interface TrackConfig {
+  label: string
+  audioSrc: string
+  transcriptSrc: string
+  storageKey: string
+}
+const TRACKS: Record<TrackKey, TrackConfig> = {
+  original: {
+    label: 'Original',
+    audioSrc: `${import.meta.env.BASE_URL}jingle.mp3`,
+    transcriptSrc: `${import.meta.env.BASE_URL}transcript.json`,
+    storageKey: 'aura-jingle-lines-v1',
+  },
+  chill: {
+    label: 'Chill',
+    audioSrc: `${import.meta.env.BASE_URL}jingle-chill.m4a`,
+    transcriptSrc: `${import.meta.env.BASE_URL}transcript-chill.json`,
+    // Separate key so editing one track's timings never touches the
+    // other's saved progress -- switching tracks is non-destructive.
+    storageKey: 'aura-jingle-lines-chill-v1',
+  },
+}
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
@@ -37,6 +57,7 @@ interface DragState {
 }
 
 export default function App() {
+  const [track, setTrack] = useState<TrackKey>('original')
   const [lines, setLines] = useState<LyricLine[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [duration, setDuration] = useState(0)
@@ -62,9 +83,18 @@ export default function App() {
   const draggedRef = useRef(false)
   const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map())
 
-  // ─── Load lines: prefer localStorage, fall back to bundled transcript ───
+  // ─── Load lines whenever the selected track changes: prefer that
+  // track's own localStorage slot, fall back to its bundled transcript ───
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY)
+    setLines(null)
+    setLoadError(null)
+    setWaveformReady(false)
+    setSelectedId(null)
+    setCurrentTime(0)
+    pastRef.current = []
+    futureRef.current = []
+    const cfg = TRACKS[track]
+    const saved = localStorage.getItem(cfg.storageKey)
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as LyricLine[]
@@ -76,26 +106,27 @@ export default function App() {
         // fall through to fetch
       }
     }
-    fetch(TRANSCRIPT_SRC)
+    fetch(cfg.transcriptSrc)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()
       })
       .then((raw: RawLyricLine[]) => setLines(rawToLines(raw)))
       .catch((e) => setLoadError(String(e)))
-  }, [])
+  }, [track])
 
-  // ─── Persist to localStorage on every change ───
+  // ─── Persist to localStorage on every change, scoped to the active track ───
   useEffect(() => {
-    if (lines) localStorage.setItem(STORAGE_KEY, JSON.stringify(lines))
-  }, [lines])
+    if (lines) localStorage.setItem(TRACKS[track].storageKey, JSON.stringify(lines))
+  }, [lines, track])
 
-  // ─── Decode audio once for waveform peaks ───
+  // ─── Decode audio for waveform peaks, re-run whenever the track changes ───
   useEffect(() => {
     let cancelled = false
+    setWaveformReady(false)
     async function build() {
       try {
-        const res = await fetch(AUDIO_SRC)
+        const res = await fetch(TRACKS[track].audioSrc)
         const buf = await res.arrayBuffer()
         const AudioContextCtor =
           window.AudioContext || (window as any).webkitAudioContext
@@ -136,7 +167,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [track])
 
   const totalWidth = Math.max(1, Math.ceil(duration * pxPerSec))
 
@@ -416,7 +447,7 @@ export default function App() {
 
   function handleReset() {
     if (!confirm('Reset all timings back to the original transcript? This discards your edits.')) return
-    fetch(TRANSCRIPT_SRC)
+    fetch(TRACKS[track].transcriptSrc)
       .then((r) => r.json())
       .then((raw: RawLyricLine[]) => {
         if (lines) recordHistory(lines)
@@ -455,8 +486,9 @@ export default function App() {
   return (
     <div className="app">
       <audio
+        key={track}
         ref={audioRef}
-        src={AUDIO_SRC}
+        src={TRACKS[track].audioSrc}
         preload="auto"
         onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
         onPlay={() => setIsPlaying(true)}
@@ -467,6 +499,22 @@ export default function App() {
       <header className="topbar">
         <h1>Aura Primera Jingle — Timing Editor</h1>
         <div className="controls">
+          <div className="track-switch" role="group" aria-label="Track">
+            {(Object.keys(TRACKS) as TrackKey[]).map((key) => (
+              <button
+                key={key}
+                className={`btn track-btn${track === key ? ' active' : ''}`}
+                onClick={() => {
+                  if (key === track) return
+                  audioRef.current?.pause()
+                  setIsPlaying(false)
+                  setTrack(key)
+                }}
+              >
+                {TRACKS[key].label}
+              </button>
+            ))}
+          </div>
           <button className="btn primary" onClick={togglePlay}>
             {isPlaying ? '⏸ Pause' : '▶ Play'}
           </button>
