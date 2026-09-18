@@ -20,7 +20,16 @@ const TRACKS: Record<TrackKey, TrackConfig> = {
     label: 'Original',
     audioSrc: `${import.meta.env.BASE_URL}jingle.mp3`,
     transcriptSrc: `${import.meta.env.BASE_URL}transcript.json`,
-    storageKey: 'aura-jingle-lines-v1',
+    // Bumped v1->v2 (2026-09-18): the line-splitting change altered the
+    // data SHAPE (47 lines -> 58, compound lines split in two). Without a
+    // key bump, anyone with old v1 localStorage silently keeps seeing the
+    // stale unsplit lines forever -- the load effect always prefers
+    // localStorage over the freshly-deployed transcript, with no version
+    // check, so the new split data never reaches them. Real incident:
+    // Clarke's browser kept loading old 47-line data after this exact
+    // deploy, making two already-split lines look re-fused and un-editable
+    // independently. Bump this key again for any future schema change.
+    storageKey: 'aura-jingle-lines-v2',
   },
   chill: {
     label: 'Chill',
@@ -28,7 +37,9 @@ const TRACKS: Record<TrackKey, TrackConfig> = {
     transcriptSrc: `${import.meta.env.BASE_URL}transcript-chill.json`,
     // Separate key so editing one track's timings never touches the
     // other's saved progress -- switching tracks is non-destructive.
-    storageKey: 'aura-jingle-lines-chill-v1',
+    // Bumped v1->v2 for the same reason as the original track's key above
+    // (see that comment) -- this is the exact key that actually bit us.
+    storageKey: 'aura-jingle-lines-chill-v2',
   },
 }
 
